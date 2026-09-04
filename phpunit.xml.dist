@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/9.6/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         verbose="true"
+         cacheResultFile=".phpunit.cache/test-results"
+         failOnWarning="true"
+         failOnRisky="true">
+  <testsuites>
+    <!-- Pure logic. No filesystem, no network, no SDK server. -->
+    <testsuite name="Unit">
+      <directory suffix="Test.php">tests/Unit</directory>
+    </testsuite>
+    <!-- Builds a real SDK server and replays JSON-RPC through InMemoryTransport. -->
+    <testsuite name="Integration">
+      <directory suffix="Test.php">tests/Integration</directory>
+    </testsuite>
+    <!-- Runs against the real specs when they are present; skips when they are not.
+         Enforces the tool-shape rules Claude's connector review rejects on. -->
+    <testsuite name="Contract">
+      <directory suffix="Test.php">tests/Contract</directory>
+    </testsuite>
+  </testsuites>
+  <coverage>
+    <include>
+      <directory suffix=".php">src</directory>
+    </include>
+  </coverage>
+  <php>
+    <!-- Point these at checked-out specs to activate the Contract suite.
+         CI sets them from the API repo; locally they default to the mystage
+         working copy if it exists. -->
+    <env name="MCP_CLIENT_SPEC" value=""/>
+    <env name="MCP_ADMIN_SPEC" value=""/>
+  </php>
+</phpunit>

@@ -1,0 +1,78 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Parse every configured profile's spec and write its tool cache.
+ *
+ * Not an optimisation. Measured on the 1.31 MB client spec, `Yaml::parse()` alone
+ * costs ~593 ms against ~14 ms to build and register the 311 tools it yields, so
+ * the first request after a deploy pays two thirds of a second for work that will
+ * be identical on every subsequent request. Run this from the deploy and from cron.
+ *
+ * Usage:
+ *   bin/warm-cache [--config=path/to/profiles.php] [--cache-dir=var/cache] [--prune]
+ *
+ * Exits non-zero if any profile's spec could not be fetched, so a deploy fails
+ * loudly rather than shipping a server that answers `tools/list` with nothing.
+ */
+
+use InterServer\Mcp\Core\Exception\SpecUnavailableException;
+use InterServer\Mcp\Core\OpenApi\OpenApiParser;
+use InterServer\Mcp\Core\OpenApi\SpecFetcher;
+use InterServer\Mcp\Core\OpenApi\ToolCache;
+use InterServer\Mcp\Core\Profile\ProfileRegistry;
+
+foreach ([__DIR__.'/../../../autoload.php', __DIR__.'/../vendor/autoload.php'] as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
+
+$options = getopt('', ['config:', 'cache-dir:', 'prune', 'help']);
+
+if (isset($options['help'])) {
+    fwrite(\STDOUT, "Usage: warm-cache [--config=FILE] [--cache-dir=DIR] [--prune]\n");
+    exit(0);
+}
+
+$configFile = $options['config'] ?? getcwd().'/config/profiles.php';
+$cacheDir = $options['cache-dir'] ?? getcwd().'/var/cache';
+
+if (!is_file($configFile)) {
+    fwrite(\STDERR, "warm-cache: no profile config at {$configFile}\n");
+    exit(1);
+}
+
+/** @var array<string, array<string, mixed>>|ProfileRegistry $config */
+$config = require $configFile;
+$registry = $config instanceof ProfileRegistry ? $config : ProfileRegistry::fromArray($config);
+
+$cache = new ToolCache($cacheDir, new SpecFetcher(), new OpenApiParser());
+$failed = 0;
+
+foreach ($registry->all() as $name => $profile) {
+    $started = microtime(true);
+
+    try {
+        $tools = $cache->warm($profile->specSource, $profile->name);
+        fwrite(\STDOUT, sprintf(
+            "%-10s %4d tools  %6.0f ms  %s\n",
+            $name,
+            count($tools),
+            (microtime(true) - $started) * 1000,
+            $profile->specSource,
+        ));
+    } catch (SpecUnavailableException $e) {
+        ++$failed;
+        fwrite(\STDERR, sprintf("%-10s FAILED: %s\n", $name, $e->getMessage()));
+    }
+}
+
+if (isset($options['prune'])) {
+    fwrite(\STDOUT, sprintf("pruned %d superseded entries\n", $cache->prune()));
+}
+
+exit($failed > 0 ? 1 : 0);

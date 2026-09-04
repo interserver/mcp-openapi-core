@@ -1,0 +1,44 @@
+{
+    "name": "interserver/mcp-openapi-core",
+    "description": "Shared core for InterServer's MCP servers: OpenAPI-to-tools translation, upstream proxying, and OAuth resource-server auth.",
+    "type": "library",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.3",
+        "ext-json": "*",
+        "mcp/sdk": "0.8.1",
+        "nyholm/psr7": "^1.8",
+        "nyholm/psr7-server": "^1.1",
+        "laminas/laminas-httphandlerrunner": "^2.12",
+        "symfony/yaml": "^7.4",
+        "guzzlehttp/guzzle": "^7.9",
+        "monolog/monolog": "^3.0",
+        "psr/simple-cache": "^2.0|^3.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.6",
+        "phpstan/phpstan": "^1.11"
+    },
+    "autoload": {
+        "psr-4": {
+            "InterServer\\Mcp\\Core\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "InterServer\\Mcp\\Core\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test-coverage": "phpunit --coverage-text --coverage-html=coverage",
+        "phpstan": "phpstan analyse --memory-limit=512M",
+        "lint": "@php -r \"foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(__DIR__)) as $f) { if ($f->getExtension() === 'php' && !str_contains($f->getPathname(), '/vendor/')) { exec('php -l ' . escapeshellarg($f->getPathname()), $o, $rc); if ($rc !== 0) { echo implode(PHP_EOL, $o), PHP_EOL; exit(1); } } } echo 'lint ok', PHP_EOL;\"",
+        "ci": ["@lint", "@phpstan", "@test"]
+    },
+    "minimum-stability": "stable"
+}
