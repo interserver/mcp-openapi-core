@@ -38,7 +38,17 @@
         "test-coverage": "phpunit --coverage-text --coverage-html=coverage",
         "phpstan": "phpstan analyse --memory-limit=512M",
         "lint": "@php -r \"foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(__DIR__)) as $f) { if ($f->getExtension() === 'php' && !str_contains($f->getPathname(), '/vendor/')) { exec('php -l ' . escapeshellarg($f->getPathname()), $o, $rc); if ($rc !== 0) { echo implode(PHP_EOL, $o), PHP_EOL; exit(1); } } } echo 'lint ok', PHP_EOL;\"",
-        "ci": ["@lint", "@phpstan", "@test"]
+        "ci": [
+            "@lint",
+            "@phpstan",
+            "@test"
+        ]
     },
-    "minimum-stability": "stable"
+    "minimum-stability": "stable",
+    "suggest": {
+        "ext-redis": "Shared session and introspection caching across PHP-FPM workers; without it sessions fall back to files and introspection is uncached"
+    },
+    "bin": [
+        "bin/warm-cache"
+    ]
 }
