@@ -23,6 +23,7 @@ use InterServer\Mcp\Core\OpenApi\OpenApiParser;
 use InterServer\Mcp\Core\OpenApi\SpecFetcher;
 use InterServer\Mcp\Core\OpenApi\ToolCache;
 use InterServer\Mcp\Core\Profile\ProfileRegistry;
+use InterServer\Mcp\Core\Support\Config;
 
 foreach ([__DIR__.'/../../../autoload.php', __DIR__.'/../vendor/autoload.php'] as $autoload) {
     if (is_file($autoload)) {
@@ -46,9 +47,23 @@ if (!is_file($configFile)) {
     exit(1);
 }
 
-/** @var array<string, array<string, mixed>>|ProfileRegistry $config */
-$config = require $configFile;
-$registry = $config instanceof ProfileRegistry ? $config : ProfileRegistry::fromArray($config);
+/**
+ * A profile file may return the rows directly, a ProfileRegistry, or — the form
+ * both applications use — a closure taking a Config. The closure form is what lets
+ * one file serve production, staging and a test without reading the environment
+ * behind the caller's back.
+ *
+ * @var array<string, array<string, mixed>>|ProfileRegistry|\Closure $definition
+ */
+$definition = require $configFile;
+
+if ($definition instanceof \Closure) {
+    $definition = $definition(Config::fromEnvironment());
+}
+
+$registry = $definition instanceof ProfileRegistry
+    ? $definition
+    : ProfileRegistry::fromArray($definition);
 
 $cache = new ToolCache($cacheDir, new SpecFetcher(), new OpenApiParser());
 $failed = 0;

@@ -15,7 +15,6 @@ use Mcp\Server\Session\SessionStoreInterface;
 use Mcp\Server\Transport\Http\Middleware\CorsMiddleware;
 use Mcp\Server\Transport\Http\Middleware\DnsRebindingProtectionMiddleware;
 use Mcp\Server\Transport\Http\Middleware\OAuthRequestMetaMiddleware;
-use Mcp\Server\Transport\Http\Middleware\ProtocolVersionMiddleware;
 use Mcp\Server\Transport\StreamableHttpTransport;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -44,7 +43,10 @@ use Psr\Log\LoggerInterface;
  *  4. **`OAuthRequestMetaMiddleware`** — without it the auth attributes never
  *     reach a handler, which surfaces as a server that authenticates correctly and
  *     then behaves as though nobody is logged in.
- *  5. **`ProtocolVersionMiddleware`** — the handshake era's version check.
+ * `ProtocolVersionMiddleware` is deliberately *not* in that list. It belongs to
+ * the handshake era, and this list runs before the era is classified, so putting
+ * it here answers -32022 to every modern request. The transport applies it to the
+ * handshake leg on its own.
  */
 final class FrontController
 {
@@ -125,7 +127,12 @@ final class FrontController
                     $this->advertisedScopes($profile),
                 ),
                 new OAuthRequestMetaMiddleware(),
-                new ProtocolVersionMiddleware(),
+                // No ProtocolVersionMiddleware here. This list runs at the edge,
+                // before the transport classifies the request's era, and that
+                // middleware only recognises handshake revisions — so including it
+                // rejects every 2026-07-28 request with -32022 before the modern
+                // dispatcher is ever consulted. The transport applies it itself, to
+                // handshake-era traffic only, via handshakeMiddleware().
             ],
         );
 
