@@ -38,11 +38,13 @@ final class Config
     {
         $value = $this->values[$key] ?? getenv($key);
 
-        if (false === $value || null === $value || '' === trim((string) $value)) {
+        // `getenv()` returns false for an unset name, and MCPB-style hosts
+        // substitute "" for a blank optional setting — both mean "not configured".
+        if (false === $value || '' === trim($value)) {
             return $default;
         }
 
-        return (string) $value;
+        return $value;
     }
 
     /**

@@ -35,6 +35,9 @@ final class ProtectedResourceMetadata
     ) {
     }
 
+    /**
+     * @param list<string> $scopes
+     */
     public static function forProfile(Profile $profile, string $resourceUrl, string $authorizationServer, array $scopes = []): self
     {
         return new self($resourceUrl, $authorizationServer, $scopes);
