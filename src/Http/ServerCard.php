@@ -60,7 +60,7 @@ final class ServerCard
             // reason this class takes a discovery result rather than a capability
             // array is that a literal is a second source of truth, and the two
             // previous implementations proved it drifts.
-            'capabilities' => $discovery['capabilities'] ?? new \stdClass(),
+            'capabilities' => self::asObjects($discovery['capabilities'] ?? []),
             'remotes' => [
                 [
                     'type' => 'streamable-http',
@@ -88,6 +88,43 @@ final class ServerCard
         }
 
         return $card;
+    }
+
+    /**
+     * Re-encode an empty array as an empty JSON object.
+     *
+     * A capability with no sub-options — `logging`, `completions`, `tools` — arrives
+     * from `json_decode(..., true)` as an empty PHP array, which `json_encode` then
+     * writes back as `[]`. The protocol says `{}`, and a client validating the card
+     * against the published schema rejects an array where an object is required. The
+     * live `server/discover` result is correct because the SDK serialises typed
+     * objects; only the decode/re-encode round trip this class performs loses it.
+     *
+     * @param mixed $value
+     *
+     * @return mixed
+     */
+    private static function asObjects(mixed $value): mixed
+    {
+        if (!\is_array($value)) {
+            return $value;
+        }
+
+        if ([] === $value) {
+            return new \stdClass();
+        }
+
+        // A list stays a list — `supportedVersions` and friends are genuinely arrays.
+        if (array_is_list($value)) {
+            return array_map(self::asObjects(...), $value);
+        }
+
+        $out = [];
+        foreach ($value as $k => $v) {
+            $out[$k] = self::asObjects($v);
+        }
+
+        return (object) $out;
     }
 
     /**

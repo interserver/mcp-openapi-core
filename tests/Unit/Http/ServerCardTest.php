@@ -70,13 +70,51 @@ final class ServerCardTest extends TestCase
         );
     }
 
+    /**
+     * Compare through JSON, because that is the only representation that matters
+     * here: the card is published as a document, and an empty capability has to
+     * survive as `{}` rather than degrading to `[]` on the way out.
+     *
+     * @return array<string, mixed>
+     */
+    private static function encodedCapabilities(?array $discovery = null): array
+    {
+        return json_decode((string) json_encode(self::card($discovery)['capabilities']), true);
+    }
+
     public function testTheCapabilityBlockIsCopiedFromTheDiscoveryResult(): void
     {
         // The whole point of this class. The previous implementation declared
         // `tools` alone as a literal while the live server reported five
         // capabilities, so a client reading the card and a client calling the server
         // got different answers about the same server.
-        self::assertSame(self::discovery()['capabilities'], self::card()['capabilities']);
+        self::assertSame(self::discovery()['capabilities'], self::encodedCapabilities());
+    }
+
+    public function testACapabilityWithNoSubOptionsSerialisesAsAnObject(): void
+    {
+        // `"logging": []` is not the same document as `"logging": {}` — the schema
+        // requires an object, and a validating client rejects the array form. The
+        // live server gets this right because the SDK serialises typed objects; only
+        // this class's decode/re-encode round trip can lose it.
+        $json = (string) json_encode(self::card()['capabilities']);
+
+        self::assertStringContainsString('"logging":{}', $json);
+        self::assertStringNotContainsString('"logging":[]', $json);
+    }
+
+    public function testANestedCapabilityOptionIsPreserved(): void
+    {
+        // The object conversion must not flatten a capability that does carry
+        // options — resources.subscribe is the one this server actually reports.
+        self::assertTrue(self::encodedCapabilities()['resources']['subscribe']);
+    }
+
+    public function testAListValuedFieldIsNotTurnedIntoAnObject(): void
+    {
+        // supportedVersions is genuinely a JSON array; the empty-array-to-object
+        // rule must not reach it.
+        self::assertSame(['2026-07-28'], self::card()['supportedVersions']);
     }
 
     public function testACapabilityAddedByTheServerAppearsWithoutTouchingThisClass(): void
@@ -87,7 +125,7 @@ final class ServerCardTest extends TestCase
         $discovery = self::discovery();
         $discovery['capabilities']['experimental'] = ['somethingNew' => true];
 
-        self::assertArrayHasKey('experimental', self::card($discovery)['capabilities']);
+        self::assertArrayHasKey('experimental', self::encodedCapabilities($discovery));
     }
 
     public function testTheSchemaIsTheOneTheExtensionSpecifies(): void
