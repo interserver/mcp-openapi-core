@@ -88,6 +88,8 @@ final class FrontController
 
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
+        $request = self::collapseDuplicateHostHeader($request);
+
         $profile = $this->resolver->resolve($request);
 
         $metadata = new ProtectedResourceMetadata(
@@ -286,6 +288,36 @@ final class FrontController
             ->withBody($this->streamFactory->createStream(
                 (string) json_encode($card, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES)
             ));
+    }
+
+    /**
+     * Collapse a `Host` header that arrives repeated with the same value.
+     *
+     * `Nyholm\Psr7Server\ServerRequestCreator::fromGlobals()` emits `Host` twice
+     * — once from `$_SERVER['HTTP_HOST']` and once from the URI it builds out of
+     * that same value. `getHeaderLine()` then joins them, so the DNS-rebinding
+     * middleware compares "example.com, example.com" against its allowlist and
+     * rejects every request. It fails CLOSED, which is why it presents as a
+     * blanket 403 on a correctly configured host rather than as anything that
+     * points at the header.
+     *
+     * Only identical values are collapsed. Genuinely conflicting `Host` headers
+     * are request smuggling and are left exactly as they are, so the middleware
+     * still refuses them.
+     */
+    private static function collapseDuplicateHostHeader(ServerRequestInterface $request): ServerRequestInterface
+    {
+        $values = $request->getHeader('Host');
+        if (\count($values) < 2) {
+            return $request;
+        }
+
+        $unique = array_values(array_unique($values));
+        if (1 !== \count($unique)) {
+            return $request;
+        }
+
+        return $request->withHeader('Host', $unique[0]);
     }
 
     /**
