@@ -36,9 +36,19 @@ final class ToolCache
      *
      * @return list<ToolDefinition>
      */
-    public function get(string $specSource, string $namespace = ''): array
+    public function get(string $specSource, string $namespace = '', ?DestructiveClassifier $classifier = null): array
     {
         $spec = $this->fetcher->fetch($specSource);
+
+        // The classifier decides every tool's annotations, so two profiles with
+        // different rules produce different tools from the same spec and must not
+        // share an entry. Folding its fingerprint into the namespace also means a
+        // rule change invalidates the cache on its own — the alternative is a stale
+        // annotation that looks like the change simply did not take.
+        if (null !== $classifier) {
+            $namespace .= "\0".$classifier->fingerprint();
+        }
+
         $file = $this->fileFor($spec->cacheKey($namespace));
 
         if (is_readable($file)) {
@@ -52,7 +62,11 @@ final class ToolCache
             }
         }
 
-        $tools = $this->parser->parseContent($spec->content);
+        // Parse with the caller's classifier when there is one. The default parser
+        // is only correct for a caller that has no rules of its own.
+        $parser = null === $classifier ? $this->parser : new OpenApiParser($classifier);
+
+        $tools = $parser->parseContent($spec->content);
         $this->write($file, $tools);
 
         return $tools;

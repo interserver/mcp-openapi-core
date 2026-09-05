@@ -75,7 +75,15 @@ final class OpenApiToolLoader implements LoaderInterface
      */
     public function tools(): array
     {
-        $tools = $this->cache->get($this->profile->specSource, $this->profile->name);
+        // The profile's classifier, not the parser's default. Every rule beyond
+        // "DELETE is destructive" is per-application by design, and until this
+        // argument existed the Profile carried a classifier that nothing read —
+        // so an app's rules were silently discarded and the defaults applied.
+        $tools = $this->cache->get(
+            $this->profile->specSource,
+            $this->profile->name,
+            $this->profile->destructiveClassifier,
+        );
 
         $allowlist = $this->profile->toolAllowlist;
         if (null !== $allowlist) {

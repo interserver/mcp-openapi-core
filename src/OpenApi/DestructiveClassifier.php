@@ -68,6 +68,34 @@ final class DestructiveClassifier
         );
     }
 
+    /**
+     * A stable fingerprint of this classifier's rules.
+     *
+     * Folded into the tool-cache key so that changing a rule invalidates the cache
+     * by itself. Without it, editing the rules leaves every cached annotation stale
+     * until someone remembers to clear the directory by hand — and the symptom is a
+     * tool still advertised `readOnlyHint: true` after being reclassified, which
+     * reads as "the change did not work" rather than "the cache is old".
+     *
+     * Sorted before hashing so that reordering a list, which changes nothing about
+     * what the classifier decides, does not needlessly discard a warm cache.
+     */
+    public function fingerprint(): string
+    {
+        $rules = [
+            'pathPrefixes' => $this->pathPrefixes,
+            'pathTerms' => $this->pathTerms,
+            'unsafeGetTerms' => $this->unsafeGetTerms,
+            'operationIdPatterns' => $this->operationIdPatterns,
+        ];
+        foreach ($rules as &$list) {
+            sort($list);
+        }
+        unset($list);
+
+        return hash('sha256', (string) json_encode($rules));
+    }
+
     public function isDestructive(string $httpMethod, string $path, string $operationId = ''): bool
     {
         $method = strtoupper($httpMethod);

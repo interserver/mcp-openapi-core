@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace InterServer\Mcp\Core\Tests\Unit\OpenApi;
 
 use InterServer\Mcp\Core\Exception\SpecUnavailableException;
+use InterServer\Mcp\Core\OpenApi\DestructiveClassifier;
 use InterServer\Mcp\Core\OpenApi\SpecFetcher;
 use InterServer\Mcp\Core\OpenApi\ToolCache;
 use InterServer\Mcp\Core\OpenApi\ToolDefinition;
@@ -284,5 +285,100 @@ final class ToolCacheTest extends TestCase
         $cache = new ToolCache($this->cacheDir, new SpecFetcher());
 
         self::assertCount(1, $cache->get($this->writeSpec()));
+    }
+
+    // ------------------------------------------------------------------------
+    // The caller's classifier.
+    //
+    // Profile::$destructiveClassifier existed, was documented as the way each
+    // application supplies its own rules, and was read by nothing — so every app's
+    // rules were silently discarded and the defaults applied. These pin the wiring
+    // that was missing, and the cache key that has to move with it.
+    // ------------------------------------------------------------------------
+
+    public function testTheCallersClassifierDecidesTheAnnotations(): void
+    {
+        // A GET the default rules consider read-only.
+        $spec = $this->writeSpec(
+            'acting.yaml',
+            SpecBuilder::make()
+                ->operation('/vps/{id}/stop', 'get', SpecBuilder::typicalGet('doVpsStop', 'Power off a VPS'))
+                ->toYaml()
+        );
+
+        $default = $this->cache()->get($spec, 'p');
+        self::assertTrue($default[0]->isReadOnly(), 'precondition: the default rules see a plain GET');
+
+        $classifier = new DestructiveClassifier(operationIdPatterns: ['/^do[A-Z]/']);
+        $tools = $this->cache()->get($spec, 'p', $classifier);
+
+        self::assertFalse(
+            $tools[0]->isReadOnly(),
+            'a GET that mutates must not be advertised read-only — that is what tells a client it needs no confirmation'
+        );
+    }
+
+    /**
+     * Two rule sets over one spec are two different tool catalogues. Sharing a
+     * cache entry would serve one profile's annotations to the other.
+     */
+    public function testDifferentRulesDoNotShareACacheEntry(): void
+    {
+        $spec = $this->writeSpec(
+            'shared.yaml',
+            SpecBuilder::make()
+                ->operation('/vps/{id}/stop', 'get', SpecBuilder::typicalGet('doVpsStop', 'Power off a VPS'))
+                ->toYaml()
+        );
+
+        $strict = new DestructiveClassifier(operationIdPatterns: ['/^do[A-Z]/']);
+
+        $lenientTools = $this->cache()->get($spec, 'same-namespace');
+        $strictTools = $this->cache()->get($spec, 'same-namespace', $strict);
+
+        self::assertTrue($lenientTools[0]->isReadOnly());
+        self::assertFalse($strictTools[0]->isReadOnly(), 'the same namespace and spec, but different rules');
+        self::assertCount(2, $this->cacheFiles(), 'each rule set needs its own entry');
+    }
+
+    /**
+     * The property that cost real debugging time: after editing a rule, a warm
+     * cache kept serving the old annotation, which reads as "the change did not
+     * work" rather than "the cache is stale".
+     */
+    public function testChangingARuleInvalidatesTheCacheByItself(): void
+    {
+        $spec = $this->writeSpec(
+            'evolving.yaml',
+            SpecBuilder::make()
+                ->operation('/vps/{id}/stop', 'get', SpecBuilder::typicalGet('doVpsStop', 'Power off a VPS'))
+                ->toYaml()
+        );
+
+        $before = $this->cache()->get($spec, 'p', new DestructiveClassifier(operationIdPatterns: []));
+        self::assertTrue($before[0]->isReadOnly());
+
+        $after = $this->cache()->get($spec, 'p', new DestructiveClassifier(operationIdPatterns: ['/^do[A-Z]/']));
+        self::assertFalse($after[0]->isReadOnly(), 'the new rule must take effect without clearing the cache by hand');
+    }
+
+    /**
+     * Reordering a list changes nothing about what the classifier decides, so it
+     * must not throw away a warm cache — warming it is the largest single
+     * determinant of first-request latency.
+     */
+    public function testReorderingRulesKeepsTheSameCacheEntry(): void
+    {
+        $spec = $this->writeSpec('order.yaml');
+
+        $a = new DestructiveClassifier(pathTerms: ['cancel', 'delete', 'purge']);
+        $b = new DestructiveClassifier(pathTerms: ['purge', 'cancel', 'delete']);
+
+        self::assertSame($a->fingerprint(), $b->fingerprint());
+
+        $this->cache()->get($spec, 'p', $a);
+        $this->cache()->get($spec, 'p', $b);
+
+        self::assertCount(1, $this->cacheFiles());
     }
 }
