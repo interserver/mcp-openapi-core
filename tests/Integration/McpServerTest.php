@@ -498,4 +498,46 @@ final class McpServerTest extends TestCase
 
         self::assertNotNull($server, 'building must not touch the spec');
     }
+
+    // ------------------------------------------------------- capability probe
+
+    /**
+     * The probe reports what the real server reports.
+     *
+     * This is the mechanism that stops the server card and `server/discover`
+     * disagreeing — which they did in the implementation this package replaced: the
+     * static card advertised `tools` alone while the server answered with five
+     * capabilities. Asserting against a live built server rather than a fixture is
+     * the point; a fixture would just be the second source of truth again.
+     */
+    public function testTheCapabilityProbeReturnsWhatTheServerReports(): void
+    {
+        $server = $this->factory()->build($this->profile(), AuthContext::anonymous(), new InMemorySessionStore());
+
+        $discovery = \InterServer\Mcp\Core\Server\CapabilityProbe::discover($server);
+
+        self::assertArrayHasKey('capabilities', $discovery);
+        self::assertArrayHasKey('tools', $discovery['capabilities']);
+    }
+
+    public function testTheCapabilityProbeReportsTheServerInfo(): void
+    {
+        // The card takes its name and version from here rather than from the
+        // profile, so the probe has to surface the _meta block.
+        $server = $this->factory()->build($this->profile(), AuthContext::anonymous(), new InMemorySessionStore());
+
+        $discovery = \InterServer\Mcp\Core\Server\CapabilityProbe::discover($server);
+
+        self::assertArrayHasKey('io.modelcontextprotocol/serverInfo', $discovery['_meta']);
+    }
+
+    public function testTheCapabilityProbeIncludesTheSupportedVersions(): void
+    {
+        $server = $this->factory()->build($this->profile(), AuthContext::anonymous(), new InMemorySessionStore());
+
+        self::assertContains(
+            '2026-07-28',
+            \InterServer\Mcp\Core\Server\CapabilityProbe::discover($server)['supportedVersions'],
+        );
+    }
 }

@@ -10,6 +10,7 @@ use InterServer\Mcp\Core\Auth\ScopeToolFilter;
 use InterServer\Mcp\Core\OpenApi\ToolCache;
 use InterServer\Mcp\Core\Profile\Profile;
 use InterServer\Mcp\Core\Profile\ProfileResolver;
+use InterServer\Mcp\Core\Server\CapabilityProbe;
 use InterServer\Mcp\Core\Server\ServerFactory;
 use Mcp\Server\Session\SessionStoreInterface;
 use Mcp\Server\Transport\Http\Middleware\CorsMiddleware;
@@ -106,6 +107,15 @@ final class FrontController
         $validator = null !== $this->validatorFactory
             ? ($this->validatorFactory)($profile)
             : null;
+
+        // The server card, at the path the extension reserves. Answered before the
+        // transport because it is a plain GET of a static-shaped document, not a
+        // JSON-RPC call — and unauthenticated, because a card a client must already
+        // hold a token to read cannot serve its purpose of telling that client how
+        // to get one.
+        if ($this->isServerCardRequest($request, $profile)) {
+            return $this->serverCard($request, $profile);
+        }
 
         $transport = new StreamableHttpTransport(
             $request,
@@ -209,6 +219,73 @@ final class FrontController
     private function isMetadataRequest(ServerRequestInterface $request): bool
     {
         return str_starts_with($request->getUri()->getPath(), '/.well-known/oauth-protected-resource');
+    }
+
+    /**
+     * Is this a GET of `<streamable-http-url>/server-card` for a profile that serves one?
+     */
+    private function isServerCardRequest(ServerRequestInterface $request, Profile $profile): bool
+    {
+        if (!$profile->servesServerCard || 'GET' !== strtoupper($request->getMethod())) {
+            return false;
+        }
+
+        return str_ends_with(rtrim($request->getUri()->getPath(), '/'), '/server-card');
+    }
+
+    /**
+     * Render the card from a real `server/discover` against the real server.
+     */
+    private function serverCard(ServerRequestInterface $request, Profile $profile): ResponseInterface
+    {
+        $server = $this->factory->build($profile, AuthContext::anonymous(), $this->sessionStore);
+        $discovery = CapabilityProbe::discover($server);
+
+        if ([] === $discovery) {
+            // Better a 503 than a card asserting the server has no capabilities.
+            // An empty probe means we could not establish what this server does,
+            // and publishing that as fact is how the card and the live result
+            // disagreed in the first place.
+            $this->logger?->error('Could not probe server capabilities for the server card', ['profile' => $profile->name]);
+
+            return $this->responseFactory->createResponse(503)
+                ->withHeader('Content-Type', 'application/json')
+                ->withBody($this->streamFactory->createStream('{"error":"server card unavailable"}'));
+        }
+
+        $uri = $request->getUri();
+        $endpoint = $uri->getScheme().'://'.$uri->getAuthority()
+            .substr(rtrim($uri->getPath(), '/'), 0, -\strlen('/server-card'));
+
+        $card = ServerCard::build(
+            $profile,
+            $endpoint,
+            $discovery,
+            $profile->documentationUrl,
+            $uri->getScheme().'://'.$uri->getAuthority()
+                .'/.well-known/oauth-protected-resource'.($this->resolver->pathFor($profile->name) ?? ''),
+        );
+
+        $etag = ServerCard::etag($card);
+
+        // Conditional GET. The extension asks for public caching with a one-hour
+        // max-age, so clients do re-fetch, and a 304 is cheaper than re-probing.
+        if (trim($request->getHeaderLine('If-None-Match')) === $etag) {
+            return $this->responseFactory->createResponse(304)
+                ->withHeader('ETag', $etag)
+                ->withHeader('Cache-Control', 'public, max-age=3600');
+        }
+
+        return $this->responseFactory->createResponse(200)
+            ->withHeader('Content-Type', ServerCard::MEDIA_TYPE)
+            // The card is public metadata by design — it exists to be read by
+            // clients that have no credential yet.
+            ->withHeader('Access-Control-Allow-Origin', '*')
+            ->withHeader('Cache-Control', 'public, max-age=3600')
+            ->withHeader('ETag', $etag)
+            ->withBody($this->streamFactory->createStream(
+                (string) json_encode($card, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES)
+            ));
     }
 
     /**

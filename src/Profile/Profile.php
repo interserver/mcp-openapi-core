@@ -49,6 +49,20 @@ final class Profile
          */
         public readonly array $resourceIdentifiers = [],
         public readonly string $authRealm = 'interserver',
+        /**
+         * Serve an `experimental-ext-server-card` document at
+         * `<streamable-http-url>/server-card`?
+         *
+         * Off by default, and deliberately off for the admin surface. A staff-only
+         * server has no business in public discovery — no card, no registry entry,
+         * no directory submission. Its discovery surface is its protected-resource
+         * metadata and nothing else.
+         */
+        public readonly bool $servesServerCard = false,
+        /**
+         * Human documentation for this surface, advertised on the card.
+         */
+        public readonly ?string $documentationUrl = null,
     ) {
     }
 
@@ -72,6 +86,8 @@ final class Profile
             destructiveClassifier: $row['destructiveClassifier'] ?? new DestructiveClassifier(),
             resourceIdentifiers: array_values($row['resourceIdentifiers'] ?? []),
             authRealm: (string) ($row['authRealm'] ?? 'interserver'),
+            servesServerCard: (bool) ($row['servesServerCard'] ?? false),
+            documentationUrl: $row['documentationUrl'] ?? null,
         );
     }
 
